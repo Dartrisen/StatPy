@@ -24,6 +24,10 @@ def timeit(method):
         return result
     return timed
 
+class OverTime(Exception):
+    def __init__(self):
+        super().__init__("Full tau_max is exceed")
+
 class StatPy(object):
     """
     """
@@ -34,13 +38,13 @@ class StatPy(object):
         self.vs         = 2.00001
         # time accuracy and max time
         self.tau_max    = 10
-        self.dt         = self.tau_max/size
+        self.dt         = self.tau_max/(size)
 
         self.eps        = self.dt/10
 
-        self._t         = np.zeros(shape = (2*size+2, ))
-        self._z         = np.zeros(shape = (2*size+2, ))
-        self._v         = np.zeros(shape = (2*size+2, ))
+        self._t         = np.zeros(shape = (size + 1, ))
+        self._z         = np.zeros(shape = (size + 1, ))
+        self._v         = np.zeros(shape = (size + 1, ))
 
         self.n          = np.zeros(shape = (size, ))
         self.v          = np.zeros(shape = (size, ))
@@ -99,52 +103,55 @@ class StatPy(object):
             self._z[k] = 0
             self._v[k] = v0
 
-            while (tau < self.tau_max):
-                tau += self.dt
-                if (d*np.log(1 + (1/d)*v0*tau) <= vsh*tau):
-                    tau_mid = tau
-                    break
+            try:
+                while (tau < self.tau_max):
+                    tau += self.dt
+                    if (d*np.log(1 + (1/d)*v0*tau) <= vsh*tau):
+                        print(d*np.log(1 + (1/d)*v0*tau) - vsh*tau)
+                        tau_mid = tau
+                        print(tau)
+                        break
+                    else:
+                        k = next(counter)
+                        self._z[k] = d/a*np.log(1 + 1/d*v0*tau)
+                        self._v[k] = v0/(1 + 1/d*v0*tau)
+                        self._t[k] = tau
+
+                if (tau >= self.tau_max):
+                    print(tau)
+                    raise OverTime()
                 else:
                     k = next(counter)
-                    self._z[k] = d/a*np.log(1 + 1/d*v0*tau)
-                    self._v[k] = v0/(1 + 1/d*v0*tau)
-                    self._t[k] = tau
+                    v_mid = v0/(1 + 1/d*v0*tau_mid)
+                    self._z[k] = vsh*tau_mid
+                    self._v[k] = v_mid
+                    self._t[k] = tau_mid
 
-            k = next(counter)
-            print(k)
-            v_mid = v0/(1 + 1/d*v0*tau_mid)
-            self._z[k] = vsh*tau_mid
-            self._v[k] = v_mid
-            self._t[k] = tau_mid
+                    tau = tau_mid
 
-            tau = tau_mid
+                    if (v_mid < self.vs):
+                        while (tau < self.tau_max):
+                            k = next(counter)
+                            tau += self.dt
+                            self._z[k] = (-d/(5*a)*np.log(1 + 5.0/d*(self.vs-v_mid)*(tau-tau_mid))
+                                            + self.vs*tau + tau_mid*0.25*self.vs)
+                            self._v[k] = ((v_mid - self.vs)/(1 - 5.0/d*(v_mid - self.vs)*(tau-tau_mid))
+                                            + self.vs)
+                            self._t[k] = tau
 
-            if (v_mid < self.vs):
-                while (tau < self.tau_max):
-                    k = next(counter)
-                    tau += self.dt
-                    self._z[k] = (-d/(5*a)*np.log(1 + 5.0/d*(self.vs-v_mid)*(tau-tau_mid))
-                                    + self.vs*tau + tau_mid*0.25*self.vs)
-                    self._v[k] = ((v_mid - self.vs)/(1 - 5.0/d*(v_mid - self.vs)*(tau-tau_mid))
-                                    + self.vs)
-                    self._t[k] = tau
-
-            if (v_mid > self.vs):
-                while (tau < self.tau_max):
-                    k = next(counter)
-                    print(tau)
-                    #print(k)
-                    tau += self.dt
-                    self._z[k] = (d/(5*a)*np.log(1+5.0/d*(v_mid - self.vs)*(tau - tau_mid))
-                                    + self.vs*tau + tau_mid*0.25*self.vs)
-                    self._v[k] = ((v_mid - self.vs)/(1 + 5.0/d*(v_mid - self.vs)*(tau - tau_mid))
-                                    + self.vs)
-                    self._t[k] = tau
-
-        idx = np.where(abs(self._t - t) <= self.eps)
-        #print(idx)
-        print(self._t)
-        return self._z[idx], self._v[idx]
+                    if (v_mid > self.vs):
+                        while (tau < self.tau_max):
+                            k = next(counter)
+                            tau += self.dt
+                            self._z[k] = (d/(5*a)*np.log(1+5.0/d*(v_mid - self.vs)*(tau - tau_mid))
+                                            + self.vs*tau + tau_mid*0.25*self.vs)
+                            self._v[k] = ((v_mid - self.vs)/(1 + 5.0/d*(v_mid - self.vs)*(tau - tau_mid))
+                                            + self.vs)
+                            self._t[k] = tau
+            finally:
+                idx = np.where(abs(self._t - t) <= self.eps)
+                print(idx[0])
+                return self._z[idx], self._v[idx]
     #@timeit
     def calcDistr(self, d, t, grid, form = 'quad'):
         """
@@ -303,7 +310,7 @@ def main():
     t = 0.0
     stat = StatPy()
     grid = makeGrid(1, 4)
-    stat.calcTrajectories(100, 4.0, t)
+    stat.calcTrajectories(10, 4.0, t)
     #stat.calcDistr(1, t, grid)
     #stat.tau(t, grid)
     #stat.d_Distr(t, grid)
